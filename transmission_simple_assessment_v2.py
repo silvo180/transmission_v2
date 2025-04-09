@@ -25,15 +25,14 @@ def classify_magnitude(value):
 
 def compute_sums(tower_height_m, span_between_towers_m, tower_angle_deg):
     """
-    For each x in -4000..4000 (step=span_between_towers_m), compute:
-
+    For each x in -4000..+4000 (step=span_between_towers_m),
+    compute the apparent angle using:
        d = tower_height_m / tan(tower_angle_deg)
        r = sqrt(d^2 + x^2)
        raw_angle = degrees(atan(tower_height_m / r))
 
-    If raw_angle < 0.1 => ignore
-    If raw_angle > 3 => sum it into main (floor, ceil, decimal)
-    else => side sums
+    Towers with raw_angle > 3.0 => main sums (floor, ceil, decimal).
+    0.1..3 => side sums.
     """
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
@@ -68,23 +67,16 @@ def compute_sums(tower_height_m, span_between_towers_m, tower_angle_deg):
 
     return (floor_3p, ceil_3p, dec_3p), (floor_sub3, ceil_sub3, dec_sub3)
 
-
 def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
                      f3, c3, d3, classification, triggers_intermediate,
                      style_choice="180x40 degree grid"):
     """
     Two style options:
+      1) "180x40 degree grid": original approach with grid lines, labeling, summary at bottom
+      2) "Minimal with borders": no grid lines or text at bottom, but bounding lines at x=0..180, y=0..40
 
-    1) "180x40 degree grid" -> original approach with grid lines & bottom info text
-    2) "Minimal with borders" -> no grid lines, no bottom text, but bounding edges at:
-       x=0, x=180, y=0, y=40
-
-    The rectangles are drawn exactly the same otherwise.
+    The rectangles are drawn at the calculated positions with width=2, height=raw_angle (up to 40).
     """
-    import math
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
-
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
         st.write("Angle too small.")
@@ -93,7 +85,6 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
     d = tower_height_m / math.tan(angle_radians)
     
     towers_data = []
-    # Build the tower data
     for x in range(-4000, 4001, int(span_between_towers_m)):
         r = math.hypot(d, x)
         if r <= 0:
@@ -114,11 +105,10 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         top_deg = min(raw_angle, 40.0)
         towers_data.append((phi, top_deg, color))
 
-    # Create the figure
     fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
 
     if style_choice == "180x40 degree grid":
-        # Original approach: Show grid lines, x=0..180, y=0..40
+        # Original approach: show grid lines
         for xv in range(0, 181, 10):
             ax.axvline(x=xv, color='gray', lw=0.5, alpha=0.5)
         for yv in range(0, 41):
@@ -135,7 +125,7 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
 
         ax.set_aspect('equal', adjustable='box')
 
-        # Summarize results at bottom
+        # Summarize results
         main_text = (f"Towers >3° => Lower Sum: {f3} | Upper Sum: {c3} | Decimal Sum: {d3:.2f} | "
                      f"Classification: {classification} | "
                      f"Intermediate: {'YES' if triggers_intermediate else 'NO'}")
@@ -143,19 +133,17 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         fig.subplots_adjust(bottom=0.7)
         fig.text(0.5, 0.0, main_text, ha='center', va='bottom', fontsize=10)
     
-    else:
-        # "Minimal with borders"
+    else:  # "Minimal with borders"
         ax.set_xlim(0, 180)
         ax.set_ylim(0, 40)
-        ax.axis('off')  # no axes or grid lines
-
-        # Draw bounding edges at x=0, x=180, y=0, y=40
+        ax.axis('off')
+        # bounding lines
         ax.plot([0, 180], [0, 0], color='black', lw=1)
         ax.plot([0, 180], [40, 40], color='black', lw=1)
         ax.plot([0, 0], [0, 40], color='black', lw=1)
         ax.plot([180, 180], [0, 40], color='black', lw=1)
 
-    # Draw each tower as a rectangle
+    # Draw towers
     for (phi, top_deg, color) in towers_data:
         if top_deg <= 0:
             continue
@@ -169,43 +157,71 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
     plt.tight_layout()
     return fig
 
+# --- The Streamlit App ---
 
-# --- Streamlit App Interface ---
 st.title("Simple Tower Assessment Tool")
-st.write("Enter the following values:")
+
+st.write("Choose how to provide your tower angle information:")
+
+method_choice = st.radio(
+    "Method",
+    ("Use Tower Height Angle", "Use Distance to Nearest Tower")
+)
 
 tower_height = st.number_input("Tower Height (m):", value=50.0, step=1.0)
 span = st.number_input("Span Between Towers (m):", value=100.0, step=1.0)
-tower_angle = st.number_input("Tower Height Angle (°):", min_value=1.0, max_value=20.0, value=5.0, step=0.1)
 
-# Let user pick the chart style
+if method_choice == "Use Tower Height Angle":
+    tower_angle = st.number_input("Tower Height Angle (°):", min_value=1.0, max_value=20.0, value=5.0, step=0.1)
+    used_angle = tower_angle
+    distance_used = None
+else:
+    distance_used = st.number_input("Distance to Nearest Tower (m):", value=500.0, step=10.0)
+    # convert that distance into an angle
+    if distance_used > 0:
+        # angle = deg(atan(tower_height / distance_used))
+        raw_angle_radians = math.atan(tower_height / distance_used)
+        computed_angle = math.degrees(raw_angle_radians)
+        used_angle = computed_angle
+    else:
+        # if distance <= 0 => fallback
+        used_angle = 5.0
+        distance_used = 500.0
+
 style_option = st.selectbox(
     "Plot Style",
     ("180x40 degree grid", "Minimal with borders")
 )
 
 if st.button("Calculate"):
-    (f3, c3, d3), (f_sub3, c_sub3, dec_sub3) = compute_sums(tower_height, span, tower_angle)
+    (f3, c3, d3), (f_sub3, c_sub3, dec_sub3) = compute_sums(tower_height, span, used_angle)
     classification = classify_magnitude(c3)
     triggers_intermediate = (c3 >= 16)
 
     st.subheader("RESULTS:")
     st.write(f"**Tower Height (m):** {tower_height}")
     st.write(f"**Span Between Towers (m):** {span}")
-    st.write(f"**Tower Height Angle (°):** {tower_angle:.1f}")
-    st.write("---")
+
+    if method_choice == "Use Tower Height Angle":
+        st.write(f"**Tower Height Angle (°):** {tower_angle:.1f}")
+        st.write("---")
+    else:
+        st.write(f"**Distance to Nearest Tower (m):** {distance_used}")
+        st.write(f"**Computed Tower Angle (°):** {used_angle:.2f}")
+        st.write("---")
+
     st.write("**MAIN CALCULATIONS (Towers >3°):**")
     st.write(f"Lower Sum: {f3}, Upper Sum: {c3}, Decimal Sum: {d3:.2f}")
     st.write(f"Classification: {classification}")
     if triggers_intermediate:
-        st.write("NOTE: Upper sum >=16, triggering intermediate assessment.")
+        st.write("NOTE: Upper sum >=16, intermediate assessment triggered.")
     st.write("")
-    st.write("**SIDE CALCULATION (Towers ≤3):**")
+    st.write("**SIDE CALCULATION (Towers ≤3°):**")
     st.write(f"Lower Sum: {f_sub3}, Upper Sum: {c_sub3}, Decimal Sum: {dec_sub3:.2f}")
-    
-    # Display the alignment chart in the chosen style
+
+    # Show chart
     fig = visualize_towers(
-        tower_height, span, tower_angle,
+        tower_height, span, used_angle,
         f3, c3, d3, classification, triggers_intermediate,
         style_choice=style_option
     )
