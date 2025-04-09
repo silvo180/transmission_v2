@@ -25,13 +25,15 @@ def classify_magnitude(value):
 
 def compute_sums(tower_height_m, span_between_towers_m, tower_angle_deg):
     """
-    For each x in the range -4000..4000 (step=span_between_towers_m),
-    compute the apparent angle using:
-       raw_angle = degrees(atan(tower_height_m / sqrt(d^2 + x^2))),
-    where d = tower_height_m / tan(tower_angle_deg).
+    For each x in -4000..4000 (step=span_between_towers_m), compute:
 
-    Towers with raw_angle > 3° go into main sums (floor, ceil, decimal).
-    Towers with raw_angle in [0.1°, 3°) go into side sums.
+       d = tower_height_m / tan(tower_angle_deg)
+       r = sqrt(d^2 + x^2)
+       raw_angle = degrees(atan(tower_height_m / r))
+
+    If raw_angle < 0.1 => ignore
+    If raw_angle > 3 => sum it into main (floor, ceil, decimal)
+    else => side sums
     """
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
@@ -69,24 +71,29 @@ def compute_sums(tower_height_m, span_between_towers_m, tower_angle_deg):
 
 def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
                      f3, c3, d3, classification, triggers_intermediate,
-                     style_choice="Original"):
+                     style_choice="180x40 degree grid"):
     """
-    Depending on 'style_choice':
-      - "Original": Show the original chart with grid lines and rectangles on the grid.
-      - "Suspended, No Grid": Remove all grid lines, axis spines, etc., so the red/blue boxes
-        appear to float in empty space, while preserving positions and sizes.
+    Two style options:
+
+    1) "180x40 degree grid" -> original approach with grid lines & bottom info text
+    2) "Minimal with borders" -> no grid lines, no bottom text, but bounding edges at:
+       x=0, x=180, y=0, y=40
+
+    The rectangles are drawn exactly the same otherwise.
     """
+    import math
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
 
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
         st.write("Angle too small.")
         return None
 
-    # Distance for the central tower
     d = tower_height_m / math.tan(angle_radians)
-
-    # Collect tower data for plotting
+    
     towers_data = []
+    # Build the tower data
     for x in range(-4000, 4001, int(span_between_towers_m)):
         r = math.hypot(d, x)
         if r <= 0:
@@ -108,10 +115,9 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         towers_data.append((phi, top_deg, color))
 
     # Create the figure
-    # For a wide chart:  e.g. (12,3)
     fig, ax = plt.subplots(figsize=(12, 3), dpi=300)
 
-    if style_choice == "Original":
+    if style_choice == "180x40 degree grid":
         # Original approach: Show grid lines, x=0..180, y=0..40
         for xv in range(0, 181, 10):
             ax.axvline(x=xv, color='gray', lw=0.5, alpha=0.5)
@@ -126,17 +132,30 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         ax.set_xlabel("Horizontal angle (°)")
         ax.set_ylabel("Vertical angle (°)")
         ax.set_title("Transmission Simple Assessment Tool")
-        
-        # We can keep or remove aspect settings if desired
+
         ax.set_aspect('equal', adjustable='box')
 
+        # Summarize results at bottom
+        main_text = (f"Towers >3° => Lower Sum: {f3} | Upper Sum: {c3} | Decimal Sum: {d3:.2f} | "
+                     f"Classification: {classification} | "
+                     f"Intermediate: {'YES' if triggers_intermediate else 'NO'}")
+        
+        fig.subplots_adjust(bottom=0.7)
+        fig.text(0.5, 0.0, main_text, ha='center', va='bottom', fontsize=10)
+    
     else:
-        # "Suspended, No Grid" approach
-        ax.axis('off')  # no spines, no ticks
+        # "Minimal with borders"
         ax.set_xlim(0, 180)
         ax.set_ylim(0, 40)
+        ax.axis('off')  # no axes or grid lines
 
-    # draw each tower as a rectangle
+        # Draw bounding edges at x=0, x=180, y=0, y=40
+        ax.plot([0, 180], [0, 0], color='black', lw=1)
+        ax.plot([0, 180], [40, 40], color='black', lw=1)
+        ax.plot([0, 0], [0, 40], color='black', lw=1)
+        ax.plot([180, 180], [0, 40], color='black', lw=1)
+
+    # Draw each tower as a rectangle
     for (phi, top_deg, color) in towers_data:
         if top_deg <= 0:
             continue
@@ -147,29 +166,22 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
                          facecolor=color, edgecolor=color, alpha=0.6)
         ax.add_patch(rect)
 
-    # Summarize at bottom
-    main_text = (f"Towers >3° => Lower Sum: {f3} | Upper Sum: {c3} | Decimal Sum: {d3:.2f} | "
-                 f"Classification: {classification} | "
-                 f"Intermediate: {'YES' if triggers_intermediate else 'NO'}")
-
-    fig.subplots_adjust(bottom=0.7)
-    fig.text(0.5, 0.0, main_text, ha='center', va='bottom', fontsize=10)
     plt.tight_layout()
     return fig
 
 
 # --- Streamlit App Interface ---
 st.title("Simple Tower Assessment Tool")
-
 st.write("Enter the following values:")
 
 tower_height = st.number_input("Tower Height (m):", value=50.0, step=1.0)
 span = st.number_input("Span Between Towers (m):", value=100.0, step=1.0)
 tower_angle = st.number_input("Tower Height Angle (°):", min_value=1.0, max_value=20.0, value=5.0, step=0.1)
 
+# Let user pick the chart style
 style_option = st.selectbox(
     "Plot Style",
-    ("Original", "Suspended, No Grid")
+    ("180x40 degree grid", "Minimal with borders")
 )
 
 if st.button("Calculate"):
@@ -195,7 +207,7 @@ if st.button("Calculate"):
     fig = visualize_towers(
         tower_height, span, tower_angle,
         f3, c3, d3, classification, triggers_intermediate,
-        style_choice=style_option  # "Original" or "Suspended, No Grid"
+        style_choice=style_option
     )
     if fig is not None:
         st.pyplot(fig)
