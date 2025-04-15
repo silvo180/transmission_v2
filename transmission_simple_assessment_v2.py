@@ -12,7 +12,7 @@ def classify_magnitude(value):
       26–36 => High
       37+   => Very high
 
-    We'll later trigger "intermediate assessment" if value >=15 (i.e. moderate or higher).
+    We'll trigger "intermediate assessment" if the value >=15 (Moderate or higher).
     """
     if value <= 7:
         return "Very low"
@@ -27,68 +27,71 @@ def classify_magnitude(value):
 
 def compute_sums(tower_height_m, span_between_towers_m, tower_angle_deg):
     """
-    Same logic from previous code:
-    We define three categories of sums, skipping angles < 0.1:
-      1) TOWERS >= 3°
-      2) TOWERS >= 2.1°
-      3) ALL visible TOWERS >= 0.1°
+    We define 2 categories:
+      1) TOWERS ≥ 3°  (the 'main' set)
+      2) ALL VISIBLE TOWERS ≥ 0.1°
+
+    For each tower offset in -4000..+4000 (step=span):
+      - If raw_angle >=0.1 => add to the "all visible" sums
+      - If raw_angle >=3.0 => also add to the '≥3°' sums
+
+    Returns: ( (f3,c3,d3), (fall,call,dall) )
     """
+
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
-        return (0,0,0.0), (0,0,0.0), (0,0,0.0)
+        # effectively zero angle
+        return (0,0,0.0), (0,0,0.0)
 
     d = tower_height_m / math.tan(angle_radians)
 
-    f3 = c3 = 0
+    # sums for TOWERS ≥ 3°
+    f3 = 0
+    c3 = 0
     d3 = 0.0
 
-    f21 = c21 = 0
-    d21 = 0.0
-
-    fall = call = 0
+    # sums for ALL visible TOWERS ≥0.1°
+    fall = 0
+    call = 0
     dall = 0.0
 
-    step = int(span_between_towers_m) if span_between_towers_m == int(span_between_towers_m) else int(span_between_towers_m + 0.9999)
-    if step < 1:
-        step = 1
+    # define step as int
+    step = int(span_between_towers_m) if span_between_towers_m == int(span_between_towers_m) else int(span_between_towers_m+0.9999)
+    if step<1:
+        step=1
 
     for x in range(-4000, 4001, step):
         r = math.hypot(d, x)
-        if r <= 0:
+        if r<=0:
             continue
 
         raw_angle = math.degrees(math.atan(tower_height_m / r))
         if raw_angle < 0.1:
             continue
 
-        # All towers >=0.1
+        # all visible
         fall += math.floor(raw_angle)
         call += math.ceil(raw_angle)
         dall += raw_angle
 
-        # towers >=2.1
-        if raw_angle >= 2.1:
-            f21 += math.floor(raw_angle)
-            c21 += math.ceil(raw_angle)
-            d21 += raw_angle
-
-        # towers >=3
-        if raw_angle >= 3.0:
+        # towers≥3
+        if raw_angle >=3.0:
             f3 += math.floor(raw_angle)
             c3 += math.ceil(raw_angle)
             d3 += raw_angle
 
-    return (f3,c3,d3), (f21,c21,d21), (fall,call,dall)
+    return (f3,c3,d3),(fall,call,dall)
 
 def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
                      sums_3, classification, triggers_intermediate,
                      style_choice="180x40 degree grid"):
     """
-    Color:
-      >=3 -> red
-      >=2.1 -> orange
-      >=0.1 -> blue
-    Otherwise logic same, with minimal or grid style.
+    Color logic:
+      - red if raw_angle >=3.0
+      - blue if 0.1..3.0
+
+    We do 2 style options: "180x40 degree grid" or "Minimal with borders"
+    We'll only show final sums for the towers≥3° category at the bottom text.
     """
     angle_radians = math.radians(tower_angle_deg)
     if abs(math.tan(angle_radians)) < 1e-12:
@@ -96,15 +99,16 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         return None
 
     d = tower_height_m / math.tan(angle_radians)
-    f3, c3, d3 = sums_3
+    f3, c3, d3= sums_3
 
+    # gather tower data
     towers_data = []
-    step = int(span_between_towers_m) if span_between_towers_m == int(span_between_towers_m) else int(span_between_towers_m + 0.9999)
+    step = int(span_between_towers_m) if span_between_towers_m == int(span_between_towers_m) else int(span_between_towers_m+0.9999)
     if step<1:
         step=1
 
-    for x in range(-4000, 4001, step):
-        r = math.hypot(d, x)
+    for x in range(-4000,4001, step):
+        r = math.hypot(d,x)
         if r<=0:
             continue
         raw_angle = math.degrees(math.atan(tower_height_m/r))
@@ -116,14 +120,12 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
             phi=95.0
         else:
             phi_calc= math.degrees(math.atan(abs(x)/d))
-            phi=95+phi_calc if x>0 else 95-phi_calc
-            phi= max(0,min(180,phi))
+            phi= 95+phi_calc if x>0 else 95-phi_calc
+            phi= max(0,min(180, phi))
 
         # color
         if raw_angle>=3.0:
             color='red'
-        elif raw_angle>=2.1:
-            color='orange'
         else:
             color='blue'
 
@@ -147,7 +149,6 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         ax.set_title("Transmission Simple Assessment Tool")
         ax.set_aspect('equal', adjustable='box')
 
-        # Summarize
         main_text = (f"Towers ≥3° => Lower Sum: {f3} | Upper Sum: {c3} | Decimal Sum: {d3:.2f} | "
                      f"Classification: {classification} | "
                      f"Intermediate: {'YES' if triggers_intermediate else 'NO'}")
@@ -155,6 +156,7 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         fig.subplots_adjust(bottom=0.7)
         fig.text(0.5, 0.0, main_text, ha='center', va='bottom', fontsize=10)
     else:
+        # minimal with bounding lines
         ax.set_xlim(0,180)
         ax.set_ylim(0,40)
         ax.axis('off')
@@ -163,13 +165,12 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
         ax.plot([0,0],[0,40],color='black',lw=1)
         ax.plot([180,180],[0,40],color='black',lw=1)
 
-    for (phi, top_deg, color) in towers_data:
+    for (phi,top_deg,color) in towers_data:
         if top_deg<=0:
             continue
         width=2.0
-        left_x= phi-width/2
-        rect=Rectangle((left_x,0), width, top_deg,
-                       facecolor=color, edgecolor=color, alpha=0.6)
+        left_x= phi - width/2
+        rect= Rectangle((left_x,0), width, top_deg, facecolor=color, edgecolor=color, alpha=0.6)
         ax.add_patch(rect)
 
     plt.tight_layout()
@@ -179,10 +180,13 @@ def visualize_towers(tower_height_m, span_between_towers_m, tower_angle_deg,
 
 st.title("Simple Tower Assessment Tool")
 
-method_choice = st.radio("Method", ("Use Tower Height Angle","Use Distance to Nearest Tower"))
+method_choice= st.radio(
+    "Method",
+    ("Use Tower Height Angle", "Use Distance to Nearest Tower")
+)
 
-tower_height = st.number_input("Tower Height (m):", value=50.0, step=1.0)
-span = st.number_input("Span Between Towers (m):", value=100.0, step=1.0)
+tower_height= st.number_input("Tower Height (m):", value=50.0, step=1.0)
+span= st.number_input("Span Between Towers (m):", value=100.0, step=1.0)
 
 if method_choice=="Use Tower Height Angle":
     tower_angle= st.number_input("Tower Height Angle (°):", min_value=1.0, max_value=20.0, value=5.0, step=0.1)
@@ -191,23 +195,28 @@ if method_choice=="Use Tower Height Angle":
 else:
     distance_used= st.number_input("Distance to Nearest Tower (m):", value=500.0, step=10.0)
     if distance_used>0:
-        raw_angle_radians= math.atan(tower_height / distance_used)
+        raw_angle_radians= math.atan(tower_height/ distance_used)
         used_angle= math.degrees(raw_angle_radians)
     else:
         used_angle=5.0
         distance_used=500.0
 
-style_option= st.selectbox("Plot Style", ("180x40 degree grid","Minimal with borders"))
+style_option= st.selectbox(
+    "Plot Style",
+    ("180x40 degree grid", "Minimal with borders")
+)
 
 if st.button("Calculate"):
-    sums_3, sums_21, sums_all= compute_sums(tower_height, span, used_angle)
-    f3,c3,d3= sums_3
-    f21,c21,d21= sums_21
-    fall,call,dall= sums_all
+    # compute sums => (≥3° sums), (all≥0.1° sums)
+    sums_3, sums_all= compute_sums(tower_height, span, used_angle)
+
+    # parse them
+    f3, c3, d3= sums_3
+    fall, call, dall= sums_all
 
     classification= classify_magnitude(c3)
-    # Now intermediate is triggered if c3 >=15 because "moderate or greater"
-    triggers_intermediate= (c3 >= 15)
+    # an intermediate triggered if c3 >=15 => "moderate or greater"
+    triggers_intermediate= (c3>=15)
 
     st.subheader("RESULTS:")
     st.write(f"**Tower Height (m):** {tower_height}")
@@ -220,22 +229,24 @@ if st.button("Calculate"):
         st.write(f"**Computed Tower Angle (°):** {used_angle:.2f}")
     st.write("---")
 
+    # towers≥3
     st.write("**CALCULATIONS FOR TOWERS ≥ 3°:**")
     st.write(f"Lower Sum: {f3}, Upper Sum: {c3}, Decimal Sum: {d3:.2f}")
     st.write(f"Classification: {classification}")
     if triggers_intermediate:
-        st.write("NOTE: Occupied cells ≥15 => intermediate assessment triggered (Moderate or higher).")
+        st.write("NOTE: Occupied cells≥15 => moderate or higher => intermediate assessment.")
 
     st.write("")
-    st.write("**CALCULATIONS FOR TOWERS ≥ 2.1°:** (includes ≥3° ones, color=orange if 2.1°–3°, red if ≥3°)")
-    st.write(f"Lower Sum: {f21}, Upper Sum: {c21}, Decimal Sum: {d21:.2f}")
-
-    st.write("")
-    st.write("**CALCULATIONS FOR ALL VISIBLE TOWERS ≥ 0.1°:** (color=blue if <2.1°, orange 2.1°–3°, red ≥3°)")
+    # all≥0.1
+    st.write("**CALCULATIONS FOR ALL VISIBLE TOWERS ≥ 0.1°:** (blue if <3°, red if ≥3°)")
     st.write(f"Lower Sum: {fall}, Upper Sum: {call}, Decimal Sum: {dall:.2f}")
 
-    fig= visualize_towers(tower_height, span, used_angle, sums_3,
-                          classification, triggers_intermediate,
-                          style_choice=style_option)
+    fig= visualize_towers(
+        tower_height, span, used_angle,
+        sums_3= sums_3,
+        classification= classification,
+        triggers_intermediate= triggers_intermediate,
+        style_choice= style_option
+    )
     if fig:
         st.pyplot(fig)
